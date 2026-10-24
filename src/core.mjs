@@ -122,7 +122,7 @@ async function runFalkor(graph,eventId,env){
 }
 async function brightPage(url,env){
   if(!env.BRIGHTDATA_API_KEY||!env.BRIGHTDATA_UNLOCKER_ZONE)throw fail('Connect Bright Data before fetching links. You can paste page text instead.',503);
-  const res=await fetchBound('https://api.brightdata.com/request',{method:'POST',headers:{Authorization:'Bearer '+env.BRIGHTDATA_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({zone:env.BRIGHTDATA_UNLOCKER_ZONE,url:safeUrl(url),format:'raw'})},90000);
+  const res=await fetchBound('https://api.brightdata.com/request',{method:'POST',headers:{Authorization:'Bearer '+env.BRIGHTDATA_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({zone:env.BRIGHTDATA_UNLOCKER_ZONE,url:safeUrl(url),format:'raw',data_format:'markdown'})},90000);
   await checkResponse(res,'Bright Data');const raw=(await res.text()).slice(0,250000);
   const clean=raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/\s+/g,' ').trim().slice(0,16000);
   if(clean.length<80||/^(access denied|just a moment|captcha)/i.test(clean))throw fail('The page did not return enough usable public content. Paste its text instead.',422);return clean;
@@ -147,8 +147,13 @@ export function integrationStatus(env){return [
 export async function analyze(input,env={}){
   const data=validateInput(input),{event,communities}=data,warnings=[],fetchedAt=new Date().toISOString();
   if(data.fetchPages){
-    const items=[...(event.url?[event]:[]),...communities];
-    await Promise.all(items.map(async item=>{try{item.text=await brightPage(item.url,env);item.sourceMode='Bright Data';}catch(e){if(!item.text)throw e;warnings.push(`${item.name}: fetch failed; using the text you supplied.`);item.sourceMode='Pasted text (fetch failed)';}}));
+    if(!env.BRIGHTDATA_API_KEY||!env.BRIGHTDATA_UNLOCKER_ZONE)throw fail('Connect Bright Data before fetching links. You can paste community text instead.',503);
+    // The organizer's structured agenda stays intact; only community sources are fetched.
+    const fetched=await Promise.allSettled(communities.map(async item=>{
+      try{item.text=await brightPage(item.url,env);item.sourceMode='Bright Data';item.fetchedAt=new Date().toISOString();}
+      catch(e){if(item.text.length<20)throw e;warnings.push(`${item.name}: fetch failed; using the text you supplied.`);item.sourceMode='Pasted text (fetch failed)';}
+    }));
+    const failed=fetched.find(r=>r.status==='rejected');if(failed)throw failed.reason;
   }
   if(communities.some(c=>c.text.length<20))throw fail('Paste at least 20 characters of public content for each community, or enable Bright Data fetching.');
   const talks=parseTalks(event.text);
@@ -157,7 +162,9 @@ export async function analyze(input,env={}){
   let rows,graphName=null,engine='Local graph traversal';
   if(data.useFalkor){if(!integrationStatus(env)[0].ready)throw fail('FalkorDB is not configured. Connect it or turn off database matching to use the local prototype.',503);const r=await runFalkor(graph,eventId,env);rows=r.rows;graphName=r.graphName;engine='FalkorDB';}else rows=traverseMatches(graph,eventId);
   const matches=assembleMatches(rows,communities,talks,event);
-  return {id:eventId,sample:input.sample===true,event,talks,matches,graph,graphName,engine,query:MATCH_QUERY,fetchedAt,warnings,extraction:data.useAI?'OpenAI':'Keyword extraction',collection:data.fetchPages?'Bright Data / see source labels':'Pasted text',integrations:integrationStatus(env)};
+  const fetchedCount=communities.filter(c=>c.sourceMode==='Bright Data').length;
+  const collection=data.fetchPages?(fetchedCount?`Bright Data (${fetchedCount}/${communities.length} fetched)`:'Pasted text (all live fetches failed)'):'Pasted text';
+  return {id:eventId,sample:input.sample===true,event,talks,matches,graph,graphName,engine,query:MATCH_QUERY,fetchedAt,warnings,extraction:data.useAI?'OpenAI':'Keyword extraction',collection,collectionStats:{requested:data.fetchPages?communities.length:0,succeeded:fetchedCount,failed:data.fetchPages?communities.length-fetchedCount:0},integrations:integrationStatus(env)};
 }
 export function templateDraft(event,match,format='post'){
   if(!match.paths?.length)throw fail('This community has no supported connection. Add evidence before drafting.');
