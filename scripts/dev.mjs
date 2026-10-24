@@ -7,7 +7,7 @@ if(runtime.FALKORDB_HOST&&runtime.FALKORDB_PASSWORD){
   const {FalkorDB}=await import('falkordb');let client;
   runtime.__falkorQuery=async(graphName,query)=>{
     try{
-      client ||= await FalkorDB.connect({socket:{host:runtime.FALKORDB_HOST,port:Number(runtime.FALKORDB_PORT||6379),tls:runtime.FALKORDB_TLS!=='false',connectTimeout:15000,reconnectStrategy:false},username:runtime.FALKORDB_USER||'falkordb',password:runtime.FALKORDB_PASSWORD});
+      if(!client){client=await FalkorDB.connect({socket:{host:runtime.FALKORDB_HOST,servername:runtime.FALKORDB_HOST,port:Number(runtime.FALKORDB_PORT||6379),tls:runtime.FALKORDB_TLS!=='false',connectTimeout:15000,reconnectStrategy:false},username:runtime.FALKORDB_USER||'falkordb',password:runtime.FALKORDB_PASSWORD});client.on('error',()=>{client=undefined;});}
       const result=await client.selectGraph(graphName).query(query,{TIMEOUT:30000});return result.data;
     }catch{client=undefined;throw Object.assign(new Error('Direct FalkorDB query failed. Verify the host, TLS setting and credentials.'),{status:502});}
   };

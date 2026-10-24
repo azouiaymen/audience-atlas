@@ -7,7 +7,7 @@ console.log('Ready for private database connection JSON. Input is not echoed.');
 const line=await new Promise(resolve=>rl.once('line',resolve));rl.close();if(process.stdin.isTTY)process.stdin.setRawMode(false);
 const c=JSON.parse(line);let db;
 try{
-  db=await FalkorDB.connect({socket:{host:c.host,port:Number(c.port),tls:true,connectTimeout:15000,reconnectStrategy:false},username:c.username,password:c.password});
+  db=await FalkorDB.connect({socket:{host:c.host,servername:c.host,port:Number(c.port),tls:true,connectTimeout:15000,reconnectStrategy:false},username:c.username,password:c.password});
   const info=await db.info();
   let previous='';try{previous=await readFile('.env.local','utf8');}catch{}
   const lines=previous.split(/\r?\n/).filter(l=>!/^FALKORDB_(HOST|PORT|USER|PASSWORD|TLS)=/.test(l));
