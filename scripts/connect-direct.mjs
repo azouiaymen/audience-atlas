@@ -7,11 +7,11 @@ console.log('Ready for private database connection JSON. Input is not echoed.');
 const line=await new Promise(resolve=>rl.once('line',resolve));rl.close();if(process.stdin.isTTY)process.stdin.setRawMode(false);
 const c=JSON.parse(line);let db;
 try{
-  db=await FalkorDB.connect({socket:{host:c.host,servername:c.host,port:Number(c.port),tls:true,connectTimeout:15000,reconnectStrategy:false},username:c.username,password:c.password});
+  db=await FalkorDB.connect({socket:{host:c.host,...(c.tls===false?{}:{servername:c.host,tls:true}),port:Number(c.port),connectTimeout:15000,reconnectStrategy:false},username:c.username,password:c.password});
   const info=await db.info();
   let previous='';try{previous=await readFile('.env.local','utf8');}catch{}
   const lines=previous.split(/\r?\n/).filter(l=>!/^FALKORDB_(HOST|PORT|USER|PASSWORD|TLS)=/.test(l));
-  const entries={FALKORDB_HOST:c.host,FALKORDB_PORT:c.port,FALKORDB_USER:c.username,FALKORDB_PASSWORD:c.password,FALKORDB_TLS:'true'};
+  const entries={FALKORDB_HOST:c.host,FALKORDB_PORT:c.port,FALKORDB_USER:c.username,FALKORDB_PASSWORD:c.password,FALKORDB_TLS:c.tls===false?'false':'true'};
   for(const [k,v]of Object.entries(entries))lines.push(k+'='+JSON.stringify(String(v)));
   await writeFile('.env.local',lines.join('\n')+'\n',{mode:0o600});
   console.log(JSON.stringify({connected:true,credentialsSaved:'ignored .env.local',secretsLogged:false}));

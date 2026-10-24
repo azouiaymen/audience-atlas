@@ -7,7 +7,7 @@ console.log('Ready for FalkorDB connection JSON on stdin. Input is not echoed.')
 const line=await new Promise(resolve=>rl.once('line',resolve));rl.close();if(process.stdin.isTTY)process.stdin.setRawMode(false);
 const config=JSON.parse(line);
 try {
-  const response=await fetch(config.browserUrl.replace(/\/$/,'')+'/api/auth/tokens/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:config.username,password:config.password,host:config.host,port:String(config.port),tls:'true'}),signal:AbortSignal.timeout(30000)});
+  const response=await fetch(config.browserUrl.replace(/\/$/,'')+'/api/auth/tokens/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:config.username,password:config.password,host:config.host,port:String(config.port),tls:config.tls===false?'false':'true'}),signal:AbortSignal.timeout(30000)});
   if(!response.ok){console.log(JSON.stringify({connected:false,status:response.status}));process.exit(1);}
   let result;try{result=await response.json();}catch{console.log(JSON.stringify({connected:false,error:'Browser authentication returned non-JSON.'}));process.exit(1);}
   if(!result.token){console.log(JSON.stringify({connected:false,error:'No token returned.'}));process.exit(1);}
