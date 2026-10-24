@@ -1,0 +1,14 @@
+{
+  "name": "audience-atlas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "validate": "node scripts/validate-artifact.mjs"
+  },
+  "dependencies": {
+    "falkordb": "^6.9.2"
+  }
+}

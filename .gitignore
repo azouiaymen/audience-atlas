@@ -1,0 +1,7 @@
+dist/
+site.tar.gz
+.env*
+!.env.example
+research/
+node_modules/
+*.log
