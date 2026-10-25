@@ -22,16 +22,27 @@ export function safeUrl(value, optional=false) {
   if (u.protocol !== 'https:' || u.username || u.password || u.port || !u.hostname.includes('.') || /(^|\.)(localhost|local|internal|test|example|invalid)$/.test(u.hostname) || /^\d+\./.test(u.hostname) || u.hostname.includes(':')) throw fail('Use a public HTTPS URL without credentials or a custom port.');
   u.hash = ''; return u.href;
 }
+export function visibleSourceText(text) {
+  return String(text)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/^\s{0,3}\[[^\]\n]+\]:[^\n]*$/gm,' ')
+    .replace(/!?\[([^\]\n]*)\]\((?:\\.|[^()\\]|\([^()]*\))*\)/g,'$1')
+    .replace(/!?\[([^\]\n]*)\]\[[^\]\n]*\]/g,'$1')
+    .replace(/(?:https?:\/\/|www\.)[^\s<>"\]]+/gi,' ')
+    .replace(/&nbsp;|&#160;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"');
+}
 export function extractTopics(text) {
   const lines = text.split(/\n|(?<=[.!?])\s+/).map(s=>s.trim()).filter(Boolean);
   return Object.entries(TOPICS).flatMap(([name,terms])=>{
-    const evidence = lines.find(line => terms.some(term => new RegExp('(^|[^a-z])'+term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'([^a-z]|$)','i').test(line)));
+    const evidence = lines.find(line => terms.some(term => new RegExp('(^|[^a-z])'+term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'([^a-z]|$)','i').test(visibleSourceText(line))));
     return evidence ? [{name,evidence:evidence.slice(0,500)}] : [];
   });
 }
 export function validateInput(input) {
   if (!input || typeof input !== 'object' || !input.event) throw fail('Add your conference first.');
-  const event={name:String(input.event.name||'').trim().slice(0,160),url:safeUrl(input.event.url,true),text:String(input.event.text||'').trim().slice(0,16000)};
+  const event={name:String(input.event.name||'').trim().slice(0,160),url:safeUrl(input.event.url,true),text:String(input.event.text||'').trim().slice(0,16000),sourceMode:'Organizer-supplied agenda'};
   if (!event.name || event.text.length < 20) throw fail('Add a conference name and at least 20 characters describing its talks.');
   if (!Array.isArray(input.communities) || input.communities.length < 1 || input.communities.length > 10) throw fail('Add between 1 and 10 communities.');
   const communities=input.communities.map((c,i)=>({id:'community-'+i,name:String(c.name||'').trim().slice(0,120),url:safeUrl(c.url),text:String(c.text||'').trim().slice(0,12000),rules:String(c.rules||'').slice(0,2000),platform:platform(c.url)}));
@@ -59,9 +70,9 @@ export function parseTalks(text) {
 export function constructGraph(event,talks,communities,eventId) {
   const nodes=[{id:eventId,type:'Event',label:event.name,url:event.url}],edges=[];
   const topics=new Map();
-  for(const t of talks){nodes.push({id:t.id,type:'Talk',label:t.title,url:event.url});edges.push({source:eventId,target:t.id,type:'HAS_TALK'});
+  for(const t of talks){nodes.push({id:t.id,type:'Talk',label:t.title,url:'',sourceMode:'Organizer-supplied agenda'});edges.push({source:eventId,target:t.id,type:'HAS_TALK'});
     if(t.speaker){const id='speaker-'+t.id;nodes.push({id,type:'Speaker',label:t.speaker,url:event.url});edges.push({source:id,target:t.id,type:'PRESENTS'});}
-    for(const k of t.topics){const id='topic-'+k.name;topics.set(id,{id,type:'Topic',label:k.name});edges.push({source:t.id,target:id,type:'COVERS',evidence:k.evidence,url:event.url});}}
+    for(const k of t.topics){const id='topic-'+k.name;topics.set(id,{id,type:'Topic',label:k.name});edges.push({source:t.id,target:id,type:'COVERS',evidence:k.evidence,url:'',sourceMode:'Organizer-supplied agenda'});}}
   for(const c of communities){nodes.push({id:c.id,type:'Community',label:c.name,url:c.url});for(const k of c.topics){const id='topic-'+k.name;topics.set(id,{id,type:'Topic',label:k.name});edges.push({source:c.id,target:id,type:'DISCUSSES',evidence:k.evidence,url:c.url});}}
   nodes.push(...topics.values());return {nodes,edges};
 }
@@ -72,7 +83,7 @@ export function traverseMatches(graph,eventId){
 }
 export function assembleMatches(rows,communities,talks,event){
   return communities.map(c=>{
-    const paths=rows.filter(r=>r.communityId===c.id).filter(r=>talks.some(t=>t.id===r.talkId)).map(r=>({...r,talkTitle:talks.find(t=>t.id===r.talkId).title,speaker:talks.find(t=>t.id===r.talkId).speaker,eventName:event.name}));
+    const paths=rows.filter(r=>r.communityId===c.id).filter(r=>talks.some(t=>t.id===r.talkId)).map(r=>({...r,talkTitle:talks.find(t=>t.id===r.talkId).title,speaker:talks.find(t=>t.id===r.talkId).speaker,eventName:event.name,talkSourceMode:'Organizer-supplied agenda',talkSourceUrl:''}));
     const talkScores=new Map();for(const p of paths)talkScores.set(p.talkId,(talkScores.get(p.talkId)||0)+1);
     paths.sort((a,b)=>talkScores.get(b.talkId)-talkScores.get(a.talkId));
     const topics=[...new Set(paths.map(p=>p.topic))];
@@ -82,8 +93,8 @@ export function assembleMatches(rows,communities,talks,event){
 function cypherValue(v){return JSON.stringify(String(v)).replace(/\u2028|\u2029/g,' ');}
 export function graphWriteQuery(graph){
   const vars=new Map(graph.nodes.map((n,i)=>[n.id,'n'+i]));
-  const chunks=graph.nodes.map(n=>`CREATE (${vars.get(n.id)}:${n.type} {id:${cypherValue(n.id)}, name:${cypherValue(n.label)}, url:${cypherValue(n.url||'')}})`);
-  for(const e of graph.edges)chunks.push(`CREATE (${vars.get(e.source)})-[:${e.type} {evidence:${cypherValue(e.evidence||'')}, url:${cypherValue(e.url||'')}}]->(${vars.get(e.target)})`);
+  const chunks=graph.nodes.map(n=>`CREATE (${vars.get(n.id)}:${n.type} {id:${cypherValue(n.id)}, name:${cypherValue(n.label)}, url:${cypherValue(n.url||'')}, sourceMode:${cypherValue(n.sourceMode||'')}})`);
+  for(const e of graph.edges)chunks.push(`CREATE (${vars.get(e.source)})-[:${e.type} {evidence:${cypherValue(e.evidence||'')}, url:${cypherValue(e.url||'')}, sourceMode:${cypherValue(e.sourceMode||'')}}]->(${vars.get(e.target)})`);
   return chunks.join('\n')+'\nRETURN 1 AS created';
 }
 export function parseSSE(text){return text.split(/\r?\n\r?\n/).filter(Boolean).map(block=>{
@@ -122,9 +133,9 @@ async function runFalkor(graph,eventId,env){
 }
 async function brightPage(url,env){
   if(!env.BRIGHTDATA_API_KEY||!env.BRIGHTDATA_UNLOCKER_ZONE)throw fail('Connect Bright Data before fetching links. You can paste page text instead.',503);
-  const res=await fetchBound('https://api.brightdata.com/request',{method:'POST',headers:{Authorization:'Bearer '+env.BRIGHTDATA_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({zone:env.BRIGHTDATA_UNLOCKER_ZONE,url:safeUrl(url),format:'raw'})},90000);
+  const res=await fetchBound('https://api.brightdata.com/request',{method:'POST',headers:{Authorization:'Bearer '+env.BRIGHTDATA_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({zone:env.BRIGHTDATA_UNLOCKER_ZONE,url:safeUrl(url),format:'raw',data_format:'markdown'})},90000);
   await checkResponse(res,'Bright Data');const raw=(await res.text()).slice(0,250000);
-  const clean=raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/\s+/g,' ').trim().slice(0,16000);
+  const clean=visibleSourceText(raw).replace(/\s+/g,' ').trim().slice(0,16000);
   if(clean.length<80||/^(access denied|just a moment|captcha)/i.test(clean))throw fail('The page did not return enough usable public content. Paste its text instead.',422);return clean;
 }
 async function openaiJSON(prompt,env){
@@ -147,8 +158,13 @@ export function integrationStatus(env){return [
 export async function analyze(input,env={}){
   const data=validateInput(input),{event,communities}=data,warnings=[],fetchedAt=new Date().toISOString();
   if(data.fetchPages){
-    const items=[...(event.url?[event]:[]),...communities];
-    await Promise.all(items.map(async item=>{try{item.text=await brightPage(item.url,env);item.sourceMode='Bright Data';}catch(e){if(!item.text)throw e;warnings.push(`${item.name}: fetch failed; using the text you supplied.`);item.sourceMode='Pasted text (fetch failed)';}}));
+    if(!env.BRIGHTDATA_API_KEY||!env.BRIGHTDATA_UNLOCKER_ZONE)throw fail('Connect Bright Data before fetching links. You can paste community text instead.',503);
+    // The organizer's structured agenda stays intact; only community sources are fetched.
+    const fetched=await Promise.allSettled(communities.map(async item=>{
+      try{item.text=await brightPage(item.url,env);item.sourceMode='Bright Data';item.fetchedAt=new Date().toISOString();}
+      catch(e){if(item.text.length<20)throw e;warnings.push(`${item.name}: fetch failed; using the text you supplied.`);item.sourceMode='Pasted text (fetch failed)';}
+    }));
+    const failed=fetched.find(r=>r.status==='rejected');if(failed)throw failed.reason;
   }
   if(communities.some(c=>c.text.length<20))throw fail('Paste at least 20 characters of public content for each community, or enable Bright Data fetching.');
   const talks=parseTalks(event.text);
@@ -157,7 +173,9 @@ export async function analyze(input,env={}){
   let rows,graphName=null,engine='Local graph traversal';
   if(data.useFalkor){if(!integrationStatus(env)[0].ready)throw fail('FalkorDB is not configured. Connect it or turn off database matching to use the local prototype.',503);const r=await runFalkor(graph,eventId,env);rows=r.rows;graphName=r.graphName;engine='FalkorDB';}else rows=traverseMatches(graph,eventId);
   const matches=assembleMatches(rows,communities,talks,event);
-  return {id:eventId,sample:input.sample===true,event,talks,matches,graph,graphName,engine,query:MATCH_QUERY,fetchedAt,warnings,extraction:data.useAI?'OpenAI':'Keyword extraction',collection:data.fetchPages?'Bright Data / see source labels':'Pasted text',integrations:integrationStatus(env)};
+  const fetchedCount=communities.filter(c=>c.sourceMode==='Bright Data').length;
+  const collection=data.fetchPages?(fetchedCount?`Bright Data (${fetchedCount}/${communities.length} fetched)`:'Pasted text (all live fetches failed)'):'Pasted text';
+  return {id:eventId,sample:input.sample===true,event,talks,matches,graph,graphName,engine,query:MATCH_QUERY,fetchedAt,warnings,extraction:data.useAI?'OpenAI':'Keyword extraction',collection,collectionStats:{requested:data.fetchPages?communities.length:0,succeeded:fetchedCount,failed:data.fetchPages?communities.length-fetchedCount:0},integrations:integrationStatus(env)};
 }
 export function templateDraft(event,match,format='post'){
   if(!match.paths?.length)throw fail('This community has no supported connection. Add evidence before drafting.');

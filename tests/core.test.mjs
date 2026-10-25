@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {analyze,sampleInput,safeUrl,extractTopics,parseSSE,templateDraft,validateInput} from '../src/core.mjs';
+import {analyze,sampleInput,safeUrl,extractTopics,parseSSE,templateDraft,validateInput,visibleSourceText,graphWriteQuery} from '../src/core.mjs';
 
 test('sample campaign finds evidence-backed paths and excludes unrelated communities',async()=>{
   const c=await analyze(sampleInput());
@@ -38,4 +38,19 @@ test('drafts disclose organizer affiliation and no-match drafts are rejected',as
 });
 test('duplicate community sources are rejected',()=>{
   const input=sampleInput();input.communities[1].url=input.communities[0].url;assert.throws(()=>validateInput(input),/different URL/);
+});
+
+test('Markdown URL destinations do not become topic evidence; visible labels remain',()=>{
+  const text='We discuss illustration. [Read more](https://site.com/python-guide)\n[More][guide]\n[guide]: https://site.com/rust\n<https://site.com/fastapi> https://site.com/pandas';
+  assert.deepEqual(extractTopics(text),[]);assert.ok(visibleSourceText(text).includes('Read more'));
+  assert.equal(extractTopics('[Python workshop](https://site.com/article)')[0].name,'Python');
+  assert.equal(visibleSourceText('[Read more](https://site.com/a_(python))'),'Read more');
+});
+
+test('unverified event URLs are never stored as sources for supplied talk quotes',async()=>{
+  const c=await analyze(sampleInput());
+  assert.equal(c.event.sourceMode,'Organizer-supplied agenda');
+  for(const edge of c.graph.edges.filter(e=>e.type==='COVERS')){assert.equal(edge.url,'');assert.equal(edge.sourceMode,'Organizer-supplied agenda');}
+  for(const m of c.matches)for(const p of m.paths){assert.equal(p.talkSourceUrl,'');assert.equal(p.talkSourceMode,'Organizer-supplied agenda');}
+  assert.match(graphWriteQuery(c.graph),/sourceMode:"Organizer-supplied agenda"/);
 });

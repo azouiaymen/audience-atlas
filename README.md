@@ -45,7 +45,7 @@ Without configuration, **local graph traversal** is explicitly labeled. It demon
 
 ### Bright Data — public page collection
 
-Set `BRIGHTDATA_API_KEY` and `BRIGHTDATA_UNLOCKER_ZONE` for a Web Unlocker zone. Enable live fetching to send event/community URLs to Bright Data's `POST https://api.brightdata.com/request`. No direct scraping fallback masquerades as Bright Data. A failed fetch uses pasted text only when it exists and produces a warning. Without usable fallback text, analysis stops. Source collection mode and run timestamp are recorded. Access is limited to public content; Facebook pages behind login may require pasted authorized excerpts. Video scripts use accessible textual context; this version does not transcribe arbitrary videos or generate video media.
+Set `BRIGHTDATA_API_KEY` and `BRIGHTDATA_UNLOCKER_ZONE` for a Web Unlocker zone. Enable live fetching to send community URLs to Bright Data's `POST https://api.brightdata.com/request`, requesting markdown. The organizer's structured talk agenda remains intact rather than being replaced by an unstructured event page. Missing credentials stop live collection immediately. A failed fetch uses pasted text only when at least 20 characters exist and produces a warning. Without usable fallback text, analysis stops after all fetches settle. Every source records its actual collection mode; successful sources get timestamps. Campaign summaries report successful/failed counts, and zero successful fetches are labeled as pasted text, not Bright Data. Access is limited to public content; Facebook pages behind login may require pasted authorized excerpts. Video scripts use accessible textual context; this version does not transcribe arbitrary videos or generate video media.
 
 ### OpenAI — extraction and writing
 
@@ -59,7 +59,7 @@ Run the official TrueForge runtime (`npx @truefoundry/trueforge`), configure an 
 
 ### Qodo
 
-Not claimed. The hackathon Qodo track requires reviewed PRs, while the owner's standing delivery instructions prohibit creating PRs. No fabricated PR links or review claims are included.
+The owner authorized a project-specific exception allowing pull requests for Audience Atlas. The Bright Data source-provenance fix is prepared as a real PR for Qodo review. Qodo's GitHub App must be installed on this repository before it can run. Do not claim completed Qodo usage until a real review is present and its findings have been addressed. No review findings or PR links are fabricated.
 
 ## Validation and build
 

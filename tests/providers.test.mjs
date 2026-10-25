@@ -10,8 +10,56 @@ test('FalkorDB mode builds a graph and uses returned database rows for recommend
 });
 test('Bright Data fetch errors use supplied text and preserve warnings',async()=>{
   const original=globalThis.fetch;globalThis.fetch=async()=>new Response('failure',{status:503});
-  try{const input=sampleInput();input.fetchPages=true;const c=await analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'});assert.equal(c.warnings.length,6);assert.ok(c.matches.every(m=>m.sourceMode.includes('fetch failed')));}
+  try{const input=sampleInput();input.fetchPages=true;const c=await analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'});assert.equal(c.warnings.length,5);assert.ok(c.matches.every(m=>m.sourceMode.includes('fetch failed')));assert.equal(c.collection,'Pasted text (all live fetches failed)');assert.equal(c.collectionStats.succeeded,0);}
   finally{globalThis.fetch=original;}
+});
+
+test('Bright Data fetches real community URLs without overwriting the structured agenda',async()=>{
+  const original=globalThis.fetch,calls=[];
+  const page='Python developers discuss open-source Python libraries, maintainers and first-time contributions to useful projects.';
+  globalThis.fetch=async(url,options)=>{calls.push({url:String(url),body:JSON.parse(options.body)});return new Response(page);};
+  try{
+    const input=sampleInput();input.fetchPages=true;input.communities=input.communities.slice(0,2);
+    const c=await analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'});
+    assert.equal(c.event.text,input.event.text);assert.equal(c.talks.length,3);assert.equal(calls.length,2);
+    assert.ok(calls.every(call=>call.url==='https://api.brightdata.com/request'&&call.body.data_format==='markdown'));
+    assert.deepEqual(calls.map(call=>call.body.url),input.communities.map(x=>x.url));
+    assert.equal(c.collection,'Bright Data (2/2 fetched)');assert.equal(c.collectionStats.succeeded,2);
+    assert.ok(c.matches.every(m=>m.text===page&&m.sourceMode==='Bright Data'&&m.fetchedAt));
+  }finally{globalThis.fetch=original;}
+});
+
+test('requesting live collection without credentials fails instead of claiming Bright Data',async()=>{
+  const input=sampleInput();input.fetchPages=true;await assert.rejects(()=>analyze(input),/Connect Bright Data/);
+});
+
+test('partial Bright Data failure preserves source-specific provenance and accurate counts',async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async(url,options)=>JSON.parse(options.body).url.includes('/AI_Agents/')?new Response('AI agents and knowledge graphs help developers build persistent agent memory across application sessions.'):new Response('failure',{status:503});
+  try{
+    const input=sampleInput();input.fetchPages=true;input.communities=input.communities.slice(0,2);
+    const c=await analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'});
+    assert.deepEqual(c.collectionStats,{requested:2,succeeded:1,failed:1});assert.equal(c.collection,'Bright Data (1/2 fetched)');
+    assert.equal(c.warnings.length,1);assert.equal(c.matches.find(m=>m.name==='r/Python').text,input.communities[1].text);
+    assert.equal(c.matches.find(m=>m.name==='r/AI_Agents').sourceMode,'Bright Data');
+  }finally{globalThis.fetch=original;}
+});
+
+test('a failed community fetch without sufficient pasted evidence stops the analysis',async()=>{
+  const original=globalThis.fetch;globalThis.fetch=async()=>new Response('unavailable',{status:503});
+  try{const input=sampleInput();input.fetchPages=true;input.communities[0].text='too short';await assert.rejects(()=>analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'}),/Bright Data returned HTTP 503/);}
+  finally{globalThis.fetch=original;}
+});
+
+test('link-heavy Markdown is cleaned before truncation and cannot invent Python matches',async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async()=>new Response('A design community discussing visual design. [Read more](https://site.com/python/'+ 'x'.repeat(18000)+') We discuss Rust compiler internals, cargo packages and low-level systems programming.');
+  try{
+    const input=sampleInput();input.fetchPages=true;input.communities=input.communities.slice(0,1);
+    const c=await analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'});
+    assert.ok(c.matches[0].text.includes('Rust compiler'));assert.ok(!c.matches[0].text.includes('python'));
+    assert.ok(c.matches[0].text.length<300);assert.equal(c.matches[0].matchCount,0);
+  }finally{globalThis.fetch=original;}
 });
 test('OpenAI writer sends graph evidence and requires completed JSON output',async()=>{
   const original=globalThis.fetch;let sent;
