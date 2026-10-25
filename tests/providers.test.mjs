@@ -50,6 +50,17 @@ test('a failed community fetch without sufficient pasted evidence stops the anal
   try{const input=sampleInput();input.fetchPages=true;input.communities[0].text='too short';await assert.rejects(()=>analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'}),/Bright Data returned HTTP 503/);}
   finally{globalThis.fetch=original;}
 });
+
+test('link-heavy Markdown is cleaned before truncation and cannot invent Python matches',async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async()=>new Response('A design community discussing visual design. [Read more](https://site.com/python/'+ 'x'.repeat(18000)+') We discuss Rust compiler internals, cargo packages and low-level systems programming.');
+  try{
+    const input=sampleInput();input.fetchPages=true;input.communities=input.communities.slice(0,1);
+    const c=await analyze(input,{BRIGHTDATA_API_KEY:'test-key',BRIGHTDATA_UNLOCKER_ZONE:'test-zone'});
+    assert.ok(c.matches[0].text.includes('Rust compiler'));assert.ok(!c.matches[0].text.includes('python'));
+    assert.ok(c.matches[0].text.length<300);assert.equal(c.matches[0].matchCount,0);
+  }finally{globalThis.fetch=original;}
+});
 test('OpenAI writer sends graph evidence and requires completed JSON output',async()=>{
   const original=globalThis.fetch;let sent;
   globalThis.fetch=async(url,options)=>{sent=JSON.parse(options.body);assert.equal(String(url),'https://api.openai.com/v1/responses');return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({text:'I am organizing a conference with a Python workshop.'})}]}]});};
